@@ -1,0 +1,415 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1"/>
+  <title>For Savannah</title>
+  <style>
+    :root{
+      --bg:#05070a;
+      --text:rgba(255,255,255,.92);
+      --muted:rgba(255,255,255,.70);
+      --accent:rgba(255,220,235,.95);
+    }
+    html,body{height:100%;margin:0;background:var(--bg);font-family:-apple-system,system-ui,Segoe UI,Roboto,Arial}
+    .wrap{min-height:100%;display:grid;place-items:center;padding:22px;box-sizing:border-box}
+    .panel{
+      width:min(92vw,560px);
+      aspect-ratio: 1/1;
+      border-radius:26px;
+      position:relative;
+      overflow:hidden;
+      border:1px solid rgba(255,255,255,.12);
+      box-shadow:0 18px 70px rgba(0,0,0,.65);
+      background: radial-gradient(1200px 800px at 50% 10%, rgba(35,85,120,.25), transparent 60%),
+                  radial-gradient(900px 700px at 30% 80%, rgba(120,40,90,.18), transparent 60%),
+                  #05070a;
+      user-select:none;-webkit-user-select:none;
+      touch-action:none;
+    }
+    canvas{width:100%;height:100%;display:block}
+    .chrome{
+      position:absolute;inset:0;pointer-events:none;
+      background:
+        radial-gradient(900px 600px at 50% 20%, rgba(255,255,255,.08), transparent 55%),
+        linear-gradient(to bottom, rgba(0,0,0,.35), transparent 20%, transparent 70%, rgba(0,0,0,.45));
+      mix-blend-mode:screen;
+      opacity:.8;
+    }
+    .grain{
+      position:absolute;inset:-20%;
+      background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='180' height='180'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.9' numOctaves='2' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='.22'/%3E%3C/svg%3E");
+      opacity:.18;mix-blend-mode:overlay;pointer-events:none;
+      transform:rotate(2deg);
+    }
+    .hint{
+      position:absolute;inset:0;display:grid;place-items:center;text-align:center;
+      padding:26px;color:var(--text);text-shadow:0 2px 14px rgba(0,0,0,.7);
+      transition:opacity .35s ease;
+      pointer-events:none;
+    }
+    .title{font-size:22px;font-weight:800;letter-spacing:.4px}
+    .sub{margin-top:10px;font-size:14px;color:var(--muted)}
+    .pill{
+      margin-top:14px;display:inline-block;
+      padding:9px 12px;border-radius:999px;
+      background:rgba(255,255,255,.09);
+      border:1px solid rgba(255,255,255,.14);
+      font-size:13px;color:rgba(255,255,255,.86);
+      backdrop-filter: blur(6px);
+      -webkit-backdrop-filter: blur(6px);
+    }
+    .footer{
+      margin-top:14px;max-width:560px;text-align:center;
+      color:rgba(255,255,255,.68);font-size:13px;line-height:1.35
+    }
+    .footer b{color:var(--accent)}
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <div class="panel" id="panel">
+      <canvas id="c"></canvas>
+      <div class="chrome"></div>
+      <div class="grain"></div>
+      <div class="hint" id="hint">
+        <div>
+          <div class="title">Savannah, happy 26th 🦈</div>
+          <div class="sub">Tap + drag to reveal. First: outline. Then: the real thing.</div>
+          <div class="pill">Size: EU 37.5 (true US women’s 8)</div>
+        </div>
+      </div>
+    </div>
+    <div class="footer">
+      From <b>William</b> — the boots are still in the mail, but the love already arrived. ❤
+    </div>
+  </div>
+
+<script>
+(() => {
+  const canvas = document.getElementById("c");
+  const panel  = document.getElementById("panel");
+  const hint   = document.getElementById("hint");
+  const ctx    = canvas.getContext("2d", { willReadFrequently:true });
+
+  // ==== FEEL SETTINGS ====
+  const BRUSH_RADIUS = 24;        // smaller = more “mysterious”
+  const FADE_HINT_AFTER = 10;     // touches before hint fades
+  const STAGE2_AT = 0.52;         // % revealed when it switches to shaded art
+  const COMPLETE_AT = 0.72;       // % revealed for “REVEAL COMPLETE” message
+  const CROSSFADE_MS = 900;       // how “cinematic” the switch feels
+
+  let w,h,dpr;
+  let overlay, octx;
+  let drawing=false;
+  let strokes=0;
+  let done=false;
+
+  // Two versions: Outline (stage 1) + Shaded (stage 2)
+  const svgOutline = `
+  <svg xmlns="http://www.w3.org/2000/svg" width="1400" height="1400" viewBox="0 0 1400 1400">
+    <g opacity=".18" stroke="rgba(255,255,255,.18)" stroke-width="2">
+      ${Array.from({length:12}).map((_,i)=>`<line x1="0" y1="${120+i*95}" x2="1400" y2="${120+i*95}"/>`).join("")}
+      ${Array.from({length:12}).map((_,i)=>`<line x1="${120+i*95}" y1="0" x2="${120+i*95}" y2="1400"/>`).join("")}
+    </g>
+
+    <g transform="translate(120,160)">
+      <!-- back boot outline -->
+      <path d="M520 260
+               C480 300,470 360,468 430
+               L458 720
+               C454 820,520 905,650 920
+               C740 930,840 900,900 850
+               C948 810,972 760,972 700
+               L972 520
+               C972 410,930 330,860 285
+               C790 240,680 230,520 260 Z"
+            fill="none" stroke="rgba(255,255,255,.32)" stroke-width="6"/>
+
+      <!-- heel outline -->
+      <path d="M820 860
+               C900 860,980 900,980 980
+               L980 1130
+               C980 1170,960 1190,920 1190
+               L820 1190
+               C780 1190,760 1170,760 1130
+               L760 980
+               C760 900,820 860,820 860 Z"
+            fill="none" stroke="rgba(255,255,255,.26)" stroke-width="6"/>
+
+      <!-- front boot outline -->
+      <path d="M190 520
+               C220 450,300 400,410 390
+               C560 375,700 450,770 565
+               C825 655,820 770,720 835
+               C635 890,490 920,340 900
+               C230 885,160 815,150 710
+               C140 605,160 575,190 520 Z"
+            fill="none" stroke="rgba(255,255,255,.34)" stroke-width="6"/>
+
+      <!-- tabi split detail -->
+      <path d="M330 890
+               C330 780,360 700,410 640
+               C470 565,560 520,700 520"
+            fill="none" stroke="rgba(255,255,255,.28)" stroke-width="8" stroke-linecap="round"/>
+
+      <text x="40" y="1060" fill="rgba(255,255,255,.40)" font-family="-apple-system,system-ui,Arial" font-size="34">
+        (a secret outline)
+      </text>
+    </g>
+  </svg>
+  `;
+
+  const svgShaded = `
+  <svg xmlns="http://www.w3.org/2000/svg" width="1400" height="1400" viewBox="0 0 1400 1400">
+    <defs>
+      <linearGradient id="g" x1="0" y1="0" x2="1" y2="1">
+        <stop offset="0" stop-color="#1b2d3a"/>
+        <stop offset="0.55" stop-color="#0b1116"/>
+        <stop offset="1" stop-color="#000"/>
+      </linearGradient>
+      <linearGradient id="shine" x1="0" y1="0" x2="0" y2="1">
+        <stop offset="0" stop-color="rgba(220,245,255,.45)"/>
+        <stop offset="1" stop-color="rgba(220,245,255,0)"/>
+      </linearGradient>
+      <filter id="soft">
+        <feGaussianBlur stdDeviation="1.2"/>
+      </filter>
+    </defs>
+
+    <g opacity=".18" stroke="rgba(255,255,255,.18)" stroke-width="2">
+      ${Array.from({length:12}).map((_,i)=>`<line x1="0" y1="${120+i*95}" x2="1400" y2="${120+i*95}"/>`).join("")}
+      ${Array.from({length:12}).map((_,i)=>`<line x1="${120+i*95}" y1="0" x2="${120+i*95}" y2="1400"/>`).join("")}
+    </g>
+
+    <g transform="translate(120,160)">
+      <path d="M520 260
+               C480 300,470 360,468 430
+               L458 720
+               C454 820,520 905,650 920
+               C740 930,840 900,900 850
+               C948 810,972 760,972 700
+               L972 520
+               C972 410,930 330,860 285
+               C790 240,680 230,520 260 Z"
+            fill="url(#g)" stroke="rgba(255,255,255,.16)" stroke-width="4"/>
+
+      <path d="M820 860
+               C900 860,980 900,980 980
+               L980 1130
+               C980 1170,960 1190,920 1190
+               L820 1190
+               C780 1190,760 1170,760 1130
+               L760 980
+               C760 900,820 860,820 860 Z"
+            fill="#070b0f" stroke="rgba(255,255,255,.14)" stroke-width="4"/>
+
+      <path d="M190 520
+               C220 450,300 400,410 390
+               C560 375,700 450,770 565
+               C825 655,820 770,720 835
+               C635 890,490 920,340 900
+               C230 885,160 815,150 710
+               C140 605,160 575,190 520 Z"
+            fill="#06090d" stroke="rgba(255,255,255,.18)" stroke-width="4"/>
+
+      <path d="M330 890
+               C330 780,360 700,410 640
+               C470 565,560 520,700 520"
+            fill="none" stroke="rgba(255,255,255,.20)" stroke-width="6" stroke-linecap="round"/>
+
+      <path d="M380 880
+               C385 780,410 710,455 655
+               C510 590,590 560,700 560"
+            fill="none" stroke="rgba(200,230,255,.10)" stroke-width="10" stroke-linecap="round" filter="url(#soft)"/>
+
+      <path d="M520 290
+               C520 290,610 260,720 290
+               C830 325,890 390,910 470
+               C860 450,800 430,730 420
+               C620 405,560 445,520 520 Z"
+            fill="url(#shine)" opacity=".35"/>
+
+      <text x="40" y="1060" fill="rgba(255,255,255,.45)" font-family="-apple-system,system-ui,Arial" font-size="34">
+        (now the real reveal)
+      </text>
+    </g>
+  </svg>
+  `;
+
+  const img1 = new Image(); // outline
+  const img2 = new Image(); // shaded
+  img1.src = "data:image/svg+xml;charset=utf-8," + encodeURIComponent(svgOutline);
+  img2.src = "data:image/svg+xml;charset=utf-8," + encodeURIComponent(svgShaded);
+
+  let stage = 1;             // 1 = outline, 2 = shaded
+  let xfading = false;       // are we crossfading?
+  let xStart = 0;            // start time for crossfade
+
+  function resize(){
+    const r = panel.getBoundingClientRect();
+    dpr = Math.max(1, Math.floor(window.devicePixelRatio || 1));
+    w = Math.floor(r.width * dpr);
+    h = Math.floor(r.height * dpr);
+    canvas.width = w; canvas.height = h;
+
+    overlay = document.createElement("canvas");
+    overlay.width = w; overlay.height = h;
+    octx = overlay.getContext("2d");
+
+    const g = octx.createLinearGradient(0,0,w,h);
+    g.addColorStop(0, "#000");
+    g.addColorStop(0.6, "#000");
+    g.addColorStop(1, "#020407");
+    octx.fillStyle = g;
+    octx.fillRect(0,0,w,h);
+
+    draw();
+  }
+
+  function coverDraw(image){
+    const iw = image.naturalWidth, ih = image.naturalHeight;
+    const s = Math.max(w/iw, h/ih);
+    const dw = iw*s, dh = ih*s;
+    const dx = (w-dw)/2, dy = (h-dh)/2;
+    ctx.drawImage(image, dx, dy, dw, dh);
+  }
+
+  function draw(){
+    ctx.clearRect(0,0,w,h);
+
+    const ready1 = img1.complete && img1.naturalWidth;
+    const ready2 = img2.complete && img2.naturalWidth;
+
+    if(ready1){
+      if(stage === 1 || !ready2){
+        coverDraw(img1);
+      } else {
+        // Stage 2: either show shaded or crossfade from outline -> shaded
+        if(xfading){
+          const t = Math.min(1, (performance.now() - xStart) / CROSSFADE_MS);
+          // draw outline then shaded on top with alpha t
+          ctx.globalAlpha = 1;
+          coverDraw(img1);
+          ctx.globalAlpha = t;
+          coverDraw(img2);
+          ctx.globalAlpha = 1;
+          if(t >= 1) xfading = false;
+          else requestAnimationFrame(draw); // keep animating during crossfade
+        } else {
+          coverDraw(img2);
+        }
+      }
+    } else {
+      ctx.fillStyle="#0b0f16";
+      ctx.fillRect(0,0,w,h);
+    }
+
+    // overlay on top (we erase holes into this)
+    ctx.drawImage(overlay,0,0);
+
+    // subtle spotlight (mystery)
+    const spot = ctx.createRadialGradient(w*0.5, h*0.25, 10, w*0.5, h*0.25, w*0.75);
+    spot.addColorStop(0, "rgba(255,255,255,.10)");
+    spot.addColorStop(1, "rgba(255,255,255,0)");
+    ctx.fillStyle = spot;
+    ctx.fillRect(0,0,w,h);
+  }
+
+  function pos(e){
+    const r = canvas.getBoundingClientRect();
+    const cx = (e.touches?e.touches[0].clientX:e.clientX) - r.left;
+    const cy = (e.touches?e.touches[0].clientY:e.clientY) - r.top;
+    return { x: cx*dpr, y: cy*dpr };
+  }
+
+  function scratch(x,y){
+    octx.save();
+    octx.globalCompositeOperation = "destination-out";
+    octx.beginPath();
+    octx.arc(x,y,BRUSH_RADIUS*dpr,0,Math.PI*2);
+    octx.fill();
+    octx.restore();
+    draw();
+  }
+
+  function estimateRevealed(){
+    const data = octx.getImageData(0,0,w,h).data;
+    let clear=0;
+    const step=18;
+    for(let i=3;i<data.length;i+=4*step){
+      if(data[i]===0) clear++;
+    }
+    return clear / (data.length/(4*step));
+  }
+
+  function switchToStage2(){
+    if(stage === 2) return;
+    stage = 2;
+    xfading = true;
+    xStart = performance.now();
+    // make the hint more minimal after switch
+    hint.innerHTML = `
+      <div>
+        <div class="title">keep going…</div>
+        <div class="sub">the outline was only the beginning.</div>
+        <div class="pill">EU 37.5 → true US women’s 8</div>
+      </div>`;
+    hint.style.opacity = "1";
+    requestAnimationFrame(draw);
+  }
+
+  function start(e){
+    e.preventDefault();
+    drawing=true;
+    const p = pos(e);
+    scratch(p.x,p.y);
+    strokes++;
+    if(strokes>=FADE_HINT_AFTER) hint.style.opacity="0";
+  }
+
+  function move(e){
+    if(!drawing) return;
+    e.preventDefault();
+    const p = pos(e);
+    scratch(p.x,p.y);
+
+    if(strokes % 10 === 0){
+      const pct = estimateRevealed();
+
+      // Stage switch
+      if(pct >= STAGE2_AT && stage === 1){
+        switchToStage2();
+      }
+
+      // Completion message
+      if(!done && pct >= COMPLETE_AT){
+        done = true;
+        hint.innerHTML = `
+          <div>
+            <div class="title">REVEAL COMPLETE ✨</div>
+            <div class="sub">Size secured: <b>EU 37.5</b> — a true <b>US women’s 8</b>.</div>
+            <div class="pill">Happy 26th, Savannah 🦈❤</div>
+          </div>`;
+        hint.style.opacity = "1";
+      }
+    }
+  }
+
+  function end(){ drawing=false; }
+
+  // load -> resize when both are ready-ish (outline is enough to start)
+  img1.onload = () => resize();
+  window.addEventListener("resize", resize);
+
+  canvas.addEventListener("mousedown", start);
+  canvas.addEventListener("mousemove", move);
+  window.addEventListener("mouseup", end);
+
+  canvas.addEventListener("touchstart", start, {passive:false});
+  canvas.addEventListener("touchmove", move, {passive:false});
+  canvas.addEventListener("touchend", end);
+})();
+</script>
+</body>
+</html>
